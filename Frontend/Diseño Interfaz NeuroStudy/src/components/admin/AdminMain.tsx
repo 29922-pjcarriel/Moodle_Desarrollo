@@ -21,12 +21,7 @@ export function AdminMain({ adminName, onLogout }: AdminMainProps) {
   };
 
   const renderView = () => {
-    const props = {
-      adminName,
-      currentView,
-      onNavigate: handleNavigate,
-      onLogout
-    };
+    const props = { adminName, currentView, onNavigate: handleNavigate, onLogout };
 
     switch (currentView) {
       case "users":

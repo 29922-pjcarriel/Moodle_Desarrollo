@@ -1,6 +1,7 @@
 import { AdminLayout } from "./AdminLayout";
-import { useState } from "react";
-import { Search, Plus, Upload, Edit2, Ban, KeyRound, Trash2, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabaseClient";
+import { Search, Plus, Upload, Edit2, Trash2, X } from "lucide-react";
 
 interface UserManagementProps {
   adminName: string;
@@ -9,239 +10,363 @@ interface UserManagementProps {
   onLogout: () => void;
 }
 
+// Relación roles → YA NO ARRAY → ES OBJETO
 interface User {
-  id: number;
-  fullName: string;
-  role: string;
+  id: string;
+  first_name: string;
+  last_name: string;
+  username: string;
   email: string;
-  status: "active" | "suspended";
-  lastAccess: string;
+  estado: "active" | "suspended";
+  ultimo_acceso: string | null;
+  rol_id: number;
+  roles: { nombre: "ADMIN" | "TEACHER" | "STUDENT" } | null;
 }
 
-const users: User[] = [
-  { id: 1, fullName: "Ana García Pérez", role: "Estudiante", email: "ana.garcia@neurostudy.edu", status: "active", lastAccess: "Hace 2 horas" },
-  { id: 2, fullName: "Carlos Mendoza López", role: "Profesor", email: "carlos.mendoza@neurostudy.edu", status: "active", lastAccess: "Hace 1 día" },
-  { id: 3, fullName: "María Rodríguez", role: "Estudiante", email: "maria.rodriguez@neurostudy.edu", status: "active", lastAccess: "Hace 3 horas" },
-  { id: 4, fullName: "Juan Fernández", role: "Estudiante", email: "juan.fernandez@neurostudy.edu", status: "suspended", lastAccess: "Hace 14 días" },
-  { id: 5, fullName: "Laura Martínez", role: "Profesor", email: "laura.martinez@neurostudy.edu", status: "active", lastAccess: "Hace 5 horas" },
-  { id: 6, fullName: "Pedro Sánchez", role: "Administrador", email: "pedro.sanchez@neurostudy.edu", status: "active", lastAccess: "Hace 30 min" },
-];
-
-export function UserManagement({ adminName, currentView, onNavigate, onLogout }: UserManagementProps) {
+export function UserManagement({
+  adminName,
+  currentView,
+  onNavigate,
+  onLogout,
+}: UserManagementProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Crear usuario
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newUser, setNewUser] = useState({
-    firstName: "",
-    lastName: "",
+    first_name: "",
+    last_name: "",
     username: "",
     email: "",
     password: "",
-    role: "Estudiante"
+    role: "STUDENT",
+    estado: "active",
   });
 
-  const filteredUsers = users.filter(user =>
-    user.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.role.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Editar usuario
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editUser, setEditUser] = useState<User | null>(null);
 
+  // =====================================================================
+  // Cargar usuarios desde Supabase (JOIN con roles)
+  // =====================================================================
+  const fetchUsers = async () => {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("usuarios")
+      .select(`
+        id,
+        first_name,
+        last_name,
+        username,
+        email,
+        estado,
+        ultimo_acceso,
+        rol_id,
+        roles ( nombre )
+      `)
+      .order("first_name");
+
+    if (error) console.error("Error cargando usuarios:", error);
+    else setUsers(data as User[]);
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  // =====================================================================
+  // Crear usuario en Supabase
+  // =====================================================================
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const { error } = await supabase.from("usuarios").insert({
+      first_name: newUser.first_name,
+      last_name: newUser.last_name,
+      username: newUser.username,
+      email: newUser.email,
+      password: newUser.password,
+      estado: newUser.estado,
+      rol_id:
+        newUser.role === "ADMIN"
+          ? 1
+          : newUser.role === "TEACHER"
+          ? 2
+          : 3, // STUDENT
+    });
+
+    if (error) {
+      alert("Error creando usuario: " + error.message);
+      return;
+    }
+
+    alert("Usuario creado correctamente");
+    setShowCreateModal(false);
+    setNewUser({
+      first_name: "",
+      last_name: "",
+      username: "",
+      email: "",
+      password: "",
+      role: "STUDENT",
+      estado: "active",
+    });
+
+    fetchUsers();
+  };
+
+  // =====================================================================
+  // Eliminar usuario
+  // =====================================================================
+  const handleDeleteUser = async (id: string) => {
+    if (!confirm("¿Seguro que deseas eliminar este usuario?")) return;
+
+    const { error } = await supabase.from("usuarios").delete().eq("id", id);
+
+    if (error) {
+      alert("Error eliminando usuario: " + error.message);
+      return;
+    }
+
+    alert("Usuario eliminado correctamente");
+    fetchUsers();
+  };
+
+  // =====================================================================
+  // Abrir modal de edición
+  // =====================================================================
+  const openEditModal = (user: User) => {
+    setEditUser(user);
+    setShowEditModal(true);
+  };
+
+  // =====================================================================
+  // Guardar cambios del usuario editado
+  // =====================================================================
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editUser) return;
+
+    const { error } = await supabase
+      .from("usuarios")
+      .update({
+        first_name: editUser.first_name,
+        last_name: editUser.last_name,
+        email: editUser.email,
+        estado: editUser.estado,
+      })
+      .eq("id", editUser.id);
+
+    if (error) {
+      alert("Error actualizando usuario: " + error.message);
+      return;
+    }
+
+    alert("Usuario actualizado correctamente");
+    setShowEditModal(false);
+    fetchUsers();
+  };
+
+  // =====================================================================
+  // Filtro dinámico
+  // =====================================================================
+  const filteredUsers = users.filter((u) => {
+    const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
+    const role = u.roles?.nombre ?? "STUDENT";
+
+    const roleName =
+      role === "ADMIN"
+        ? "Administrador"
+        : role === "TEACHER"
+        ? "Profesor"
+        : "Estudiante";
+
+    return (
+      fullName.includes(searchTerm.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      roleName.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  });
+
+  // =====================================================================
+  // Badge estado
+  // =====================================================================
   const getStatusBadge = (status: string) => {
-    if (status === "active") {
+    if (status === "active")
       return (
-        <span className="px-3 py-1 rounded-full bg-[#d4edda] text-[#155724]" style={{ fontWeight: 500 }}>
+        <span className="px-3 py-1 rounded-full bg-[#d4edda] text-[#155724]">
           Activo
         </span>
       );
-    }
+
     return (
-      <span className="px-3 py-1 rounded-full bg-[#f8d7da] text-[#721c24]" style={{ fontWeight: 500 }}>
+      <span className="px-3 py-1 rounded-full bg-[#f8d7da] text-[#721c24]">
         Suspendido
       </span>
     );
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Usuario creado: ${newUser.firstName} ${newUser.lastName}`);
-    setShowCreateModal(false);
-    setNewUser({
-      firstName: "",
-      lastName: "",
-      username: "",
-      email: "",
-      password: "",
-      role: "Estudiante"
-    });
-  };
-
+  // =====================================================================
+  // Render principal
+  // =====================================================================
   return (
-    <AdminLayout 
+    <AdminLayout
       adminName={adminName}
       currentView={currentView}
       onNavigate={onNavigate}
       onLogout={onLogout}
     >
       <div className="mb-8">
-        <h2 className="text-[#333333] mb-2" style={{ fontWeight: 700 }}>
-          Gestión de Usuarios
-        </h2>
-        <p className="text-[#006d6f]" style={{ fontWeight: 500 }}>
+        <h2 className="text-[#333333] mb-2 font-bold">Gestión de Usuarios</h2>
+        <p className="text-[#006d6f] font-medium">
           Administra usuarios, roles y permisos del sistema
         </p>
       </div>
 
-      {/* Action Bar */}
+      {/* BARRA SUPERIOR */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="flex-1 relative">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[#797979]" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#797979]" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar por nombre, email o rol..."
-            className="w-full rounded-xl border border-[#797979] bg-white pl-12 pr-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
-            style={{ fontWeight: 500 }}
+            className="w-full rounded-xl border border-[#797979] bg-white pl-12 pr-4 py-3"
           />
         </div>
 
-        <div className="flex gap-3">
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#797979] bg-[#006d6f] text-white px-6 py-3 hover:bg-[#00595a] transition-colors whitespace-nowrap"
-            style={{ fontWeight: 500, boxShadow: '3px 3px 3px rgba(0, 0, 0, 0.1)' }}
-          >
-            <Plus className="w-4 h-4" />
-            Crear Usuario
-          </button>
-          <button
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#797979] bg-[#00bfbf] text-white px-6 py-3 hover:bg-[#00a5a5] transition-colors whitespace-nowrap"
-            style={{ fontWeight: 500, boxShadow: '3px 3px 3px rgba(0, 0, 0, 0.1)' }}
-          >
-            <Upload className="w-4 h-4" />
-            Importar CSV
-          </button>
-        </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 rounded-xl bg-[#006d6f] text-white px-6 py-3"
+        >
+          <Plus className="w-4 h-4" />
+          Crear Usuario
+        </button>
       </div>
 
-      {/* Users Table */}
-      <div
-        className="bg-white rounded-2xl border border-[#797979] overflow-hidden"
-        style={{ boxShadow: '5px 5px 5px rgba(0, 0, 0, 0.1)' }}
-      >
-        <div className="overflow-x-auto">
+      {/* TABLA */}
+      <div className="bg-white rounded-2xl border border-[#797979] overflow-hidden">
+        {loading ? (
+          <p className="p-6">Cargando usuarios...</p>
+        ) : (
           <table className="w-full">
             <thead className="bg-[#006d6f] text-white">
               <tr>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
+                <th className="px-6 py-4 text-left font-semibold">
                   Nombre Completo
                 </th>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
-                  Rol
-                </th>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
+                <th className="px-6 py-4 text-left font-semibold">Rol</th>
+                <th className="px-6 py-4 text-left font-semibold">
                   Correo Electrónico
                 </th>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
-                  Estado
-                </th>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
+                <th className="px-6 py-4 text-left font-semibold">Estado</th>
+                <th className="px-6 py-4 text-left font-semibold">
                   Último Acceso
                 </th>
-                <th className="px-6 py-4 text-left" style={{ fontWeight: 600 }}>
-                  Acciones
-                </th>
+                <th className="px-6 py-4 text-left font-semibold">Acciones</th>
               </tr>
             </thead>
+
             <tbody>
-              {filteredUsers.map((user, index) => (
-                <tr
-                  key={user.id}
-                  className={index % 2 === 0 ? "bg-white" : "bg-[#ececec]"}
-                >
-                  <td className="px-6 py-4 text-[#333333]" style={{ fontWeight: 600 }}>
-                    {user.fullName}
-                  </td>
-                  <td className="px-6 py-4 text-[#006d6f]" style={{ fontWeight: 500 }}>
-                    {user.role}
-                  </td>
-                  <td className="px-6 py-4 text-[#797979]" style={{ fontWeight: 500 }}>
-                    {user.email}
-                  </td>
-                  <td className="px-6 py-4">
-                    {getStatusBadge(user.status)}
-                  </td>
-                  <td className="px-6 py-4 text-[#797979]" style={{ fontWeight: 500 }}>
-                    {user.lastAccess}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2">
-                      <button
-                        className="text-[#006d6f] hover:text-[#00bfbf] p-2 rounded-lg hover:bg-[#ececec] transition-colors"
-                        title="Editar"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="text-[#ff6b6b] hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Suspender"
-                      >
-                        <Ban className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="text-[#00bfbf] hover:text-[#006d6f] p-2 rounded-lg hover:bg-[#ececec] transition-colors"
-                        title="Restablecer Contraseña"
-                      >
-                        <KeyRound className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Eliminar"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filteredUsers.map((u, index) => {
+                const fullName = `${u.first_name} ${u.last_name}`;
+                const role =
+                  u.roles?.nombre === "ADMIN"
+                    ? "Administrador"
+                    : u.roles?.nombre === "TEACHER"
+                    ? "Profesor"
+                    : "Estudiante";
+
+                return (
+                  <tr
+                    key={u.id}
+                    className={index % 2 === 0 ? "bg-white" : "bg-[#ececec]"}
+                  >
+                    <td className="px-6 py-4 font-semibold">{fullName}</td>
+                    <td className="px-6 py-4 text-[#006d6f]">{role}</td>
+                    <td className="px-6 py-4 text-[#797979]">{u.email}</td>
+                    <td className="px-6 py-4">{getStatusBadge(u.estado)}</td>
+                    <td className="px-6 py-4 text-[#797979]">
+                      {u.ultimo_acceso ?? "—"}
+                    </td>
+
+                    {/* ¡AQUÍ VAN LAS ACCIONES DEL CRUD! */}
+                    <td className="px-6 py-4">
+                      <div className="flex gap-2">
+                        {/* EDITAR */}
+                        <button
+                          onClick={() => openEditModal(u)}
+                          className="text-[#006d6f] hover:text-[#00bfbf] p-2 rounded-lg hover:bg-[#ececec]"
+                          title="Editar Usuario"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+
+                        {/* ELIMINAR */}
+                        <button
+                          onClick={() => handleDeleteUser(u.id)}
+                          className="text-red-600 hover:text-red-800 p-2 rounded-lg hover:bg-red-50"
+                          title="Eliminar Usuario"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
 
-      {/* Stats Summary */}
+      {/* ESTADÍSTICAS */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
-        <div className="bg-white rounded-2xl border border-[#797979] p-6" style={{ boxShadow: '5px 5px 5px rgba(0, 0, 0, 0.1)' }}>
-          <p className="text-[#797979] mb-2" style={{ fontWeight: 500 }}>Total de Usuarios</p>
-          <p className="text-[#333333]" style={{ fontWeight: 700 }}>{users.length}</p>
+        <div className="bg-white rounded-2xl border p-6">
+          <p className="text-[#797979]">Total de Usuarios</p>
+          <p className="text-[#333333] font-bold">{users.length}</p>
         </div>
-        <div className="bg-white rounded-2xl border border-[#797979] p-6" style={{ boxShadow: '5px 5px 5px rgba(0, 0, 0, 0.1)' }}>
-          <p className="text-[#797979] mb-2" style={{ fontWeight: 500 }}>Usuarios Activos</p>
-          <p className="text-[#333333]" style={{ fontWeight: 700 }}>{users.filter(u => u.status === "active").length}</p>
+
+        <div className="bg-white rounded-2xl border p-6">
+          <p className="text-[#797979]">Usuarios Activos</p>
+          <p className="text-[#333333] font-bold">
+            {users.filter((u) => u.estado === "active").length}
+          </p>
         </div>
-        <div className="bg-white rounded-2xl border border-[#797979] p-6" style={{ boxShadow: '5px 5px 5px rgba(0, 0, 0, 0.1)' }}>
-          <p className="text-[#797979] mb-2" style={{ fontWeight: 500 }}>Usuarios Suspendidos</p>
-          <p className="text-[#333333]" style={{ fontWeight: 700 }}>{users.filter(u => u.status === "suspended").length}</p>
+
+        <div className="bg-white rounded-2xl border p-6">
+          <p className="text-[#797979]">Usuarios Suspendidos</p>
+          <p className="text-[#333333] font-bold">
+            {users.filter((u) => u.estado === "suspended").length}
+          </p>
         </div>
-        <div className="bg-white rounded-2xl border border-[#797979] p-6" style={{ boxShadow: '5px 5px 5px rgba(0, 0, 0, 0.1)' }}>
-          <p className="text-[#797979] mb-2" style={{ fontWeight: 500 }}>Profesores</p>
-          <p className="text-[#333333]" style={{ fontWeight: 700 }}>{users.filter(u => u.role === "Profesor").length}</p>
+
+        <div className="bg-white rounded-2xl border p-6">
+          <p className="text-[#797979]">Profesores</p>
+          <p className="text-[#333333] font-bold">
+            {users.filter((u) => u.roles?.nombre === "TEACHER").length}
+          </p>
         </div>
       </div>
 
-      {/* Create User Modal */}
+      {/* ===================================================================== */}
+      {/* MODAL CREAR USUARIO */}
+      {/* ===================================================================== */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div
-            className="bg-white rounded-2xl border border-[#797979] p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            style={{ boxShadow: '5px 5px 15px rgba(0, 0, 0, 0.3)' }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-[#333333]" style={{ fontWeight: 700 }}>
-                Crear Nuevo Usuario
-              </h3>
+          <div className="bg-white rounded-2xl border p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between mb-6">
+              <h3 className="font-bold">Crear Nuevo Usuario</h3>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="text-[#797979] hover:text-[#333333] transition-colors"
+                className="text-[#797979]"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -249,105 +374,161 @@ export function UserManagement({ adminName, currentView, onNavigate, onLogout }:
 
             <form onSubmit={handleCreateUser} className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                    Nombre
-                  </label>
-                  <input
-                    type="text"
-                    value={newUser.firstName}
-                    onChange={(e) => setNewUser({ ...newUser, firstName: e.target.value })}
-                    className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                    Apellido
-                  </label>
-                  <input
-                    type="text"
-                    value={newUser.lastName}
-                    onChange={(e) => setNewUser({ ...newUser, lastName: e.target.value })}
-                    className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                  Nombre de Usuario
-                </label>
                 <input
                   type="text"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
+                  placeholder="Nombre"
+                  className="rounded-xl border px-4 py-3"
+                  value={newUser.first_name}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, first_name: e.target.value })
+                  }
                   required
                 />
-              </div>
 
-              <div>
-                <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                  Correo Electrónico
-                </label>
                 <input
-                  type="email"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                  className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
+                  type="text"
+                  placeholder="Apellido"
+                  className="rounded-xl border px-4 py-3"
+                  value={newUser.last_name}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, last_name: e.target.value })
+                  }
                   required
                 />
               </div>
 
-              <div>
-                <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                  Contraseña
-                </label>
-                <input
-                  type="password"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                  className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
-                  required
-                />
-              </div>
+              <input
+                type="text"
+                placeholder="Nombre de usuario"
+                className="rounded-xl border px-4 py-3"
+                value={newUser.username}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, username: e.target.value })
+                }
+                required
+              />
 
-              <div>
-                <label className="block text-[#333333] mb-2" style={{ fontWeight: 500 }}>
-                  Rol
-                </label>
-                <select
-                  value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                  className="w-full rounded-xl border border-[#797979] bg-[#ececec] px-4 py-3 text-[#333333] focus:outline-none focus:border-[#006d6f]"
-                >
-                  <option value="Estudiante">Estudiante</option>
-                  <option value="Profesor">Profesor</option>
-                  <option value="Administrador">Administrador</option>
-                  <option value="Gestor de Curso">Gestor de Curso</option>
-                  <option value="Invitado">Invitado</option>
-                </select>
-              </div>
+              <input
+                type="email"
+                placeholder="Correo electrónico"
+                className="rounded-xl border px-4 py-3"
+                value={newUser.email}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, email: e.target.value })
+                }
+                required
+              />
+
+              <input
+                type="password"
+                placeholder="Contraseña"
+                className="rounded-xl border px-4 py-3"
+                value={newUser.password}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, password: e.target.value })
+                }
+                required
+              />
+
+              <select
+                className="rounded-xl border px-4 py-3"
+                value={newUser.role}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, role: e.target.value })
+                }
+              >
+                <option value="STUDENT">Estudiante</option>
+                <option value="TEACHER">Profesor</option>
+                <option value="ADMIN">Administrador</option>
+              </select>
+
+              <select
+                className="rounded-xl border px-4 py-3"
+                value={newUser.estado}
+                onChange={(e) =>
+                  setNewUser({ ...newUser, estado: e.target.value })
+                }
+              >
+                <option value="active">Activo</option>
+                <option value="suspended">Suspendido</option>
+              </select>
 
               <div className="flex gap-4 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 rounded-xl border border-[#797979] bg-[#006d6f] text-white px-6 py-3 hover:bg-[#00595a] transition-colors"
-                  style={{ fontWeight: 600, boxShadow: '3px 3px 3px rgba(0, 0, 0, 0.1)' }}
-                >
+                <button className="flex-1 bg-[#006d6f] text-white rounded-xl py-3">
                   Crear Usuario
                 </button>
+
                 <button
                   type="button"
+                  className="rounded-xl border px-6 py-3"
                   onClick={() => setShowCreateModal(false)}
-                  className="rounded-xl border border-[#797979] bg-white text-[#333333] px-6 py-3 hover:bg-[#ececec] transition-colors"
-                  style={{ fontWeight: 600 }}
                 >
                   Cancelar
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL EDITAR USUARIO */}
+      {/* ===================================================================== */}
+      {showEditModal && editUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl border p-8 max-w-2xl w-full">
+            <div className="flex justify-between mb-6">
+              <h3 className="font-bold">Editar Usuario</h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-[#797979]"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateUser} className="space-y-5">
+              <input
+                type="text"
+                className="w-full rounded-xl border px-4 py-3"
+                value={editUser.first_name}
+                onChange={(e) =>
+                  setEditUser({ ...editUser, first_name: e.target.value })
+                }
+              />
+
+              <input
+                type="text"
+                className="w-full rounded-xl border px-4 py-3"
+                value={editUser.last_name}
+                onChange={(e) =>
+                  setEditUser({ ...editUser, last_name: e.target.value })
+                }
+              />
+
+              <input
+                type="email"
+                className="w-full rounded-xl border px-4 py-3"
+                value={editUser.email}
+                onChange={(e) =>
+                  setEditUser({ ...editUser, email: e.target.value })
+                }
+              />
+
+              <select
+                className="w-full rounded-xl border px-4 py-3"
+                value={editUser.estado}
+                onChange={(e) =>
+                  setEditUser({ ...editUser, estado: e.target.value })
+                }
+              >
+                <option value="active">Activo</option>
+                <option value="suspended">Suspendido</option>
+              </select>
+
+              <button className="w-full bg-[#006d6f] text-white rounded-xl py-3">
+                Guardar Cambios
+              </button>
             </form>
           </div>
         </div>
