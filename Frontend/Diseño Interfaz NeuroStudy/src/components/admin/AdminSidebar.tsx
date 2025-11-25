@@ -23,7 +23,7 @@ export function AdminSidebar({ adminName, currentView, onNavigate, onLogout }: A
     <aside className="fixed left-0 top-0 h-screen w-[220px] bg-[#00595a] text-white flex flex-col z-20">
       {/* Logo Section */}
       <div className="p-6 flex justify-center">
-        <Logo size="sm" color="white" />
+        <Logo size="sm" />
       </div>
 
       {/* Separator */}
