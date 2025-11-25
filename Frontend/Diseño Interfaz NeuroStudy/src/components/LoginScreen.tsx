@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 import { Logo } from "./Logo";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { Eye, EyeOff } from "lucide-react";
@@ -11,33 +12,68 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  // NOTA: El rol se mantiene internamente para funcionalidad futura
-  // En producción, este rol se obtendrá automáticamente desde la base de datos
-  // después de validar las credenciales del usuario
-  const [role, setRole] = useState<"student" | "teacher" | "admin">("student");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ==========================================================
+  // MANEJO REAL DEL LOGIN CON SUPABASE
+  // ==========================================================
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username.trim()) {
-      // TODO: En producción, el rol se obtendrá del backend después de autenticar
-      // Ejemplo: const userRole = await authenticateUser(username, password);
-      
-      // MODO DESARROLLO: Detección automática de rol basada en el usuario
-      // Esto simula el comportamiento que tendrá con el backend real
-      let detectedRole: "student" | "teacher" | "admin" = "student";
-      
-      const usernameLower = username.toLowerCase().trim();
-      
-      if (usernameLower === "profesor" || usernameLower === "teacher") {
-        detectedRole = "teacher";
-      } else if (usernameLower === "admin" || usernameLower === "administrador") {
-        detectedRole = "admin";
-      } else {
-        detectedRole = "student";
-      }
-      
-      onLogin(username, detectedRole);
+
+    if (!username.trim() || !password.trim()) {
+      alert("Debe ingresar usuario y contraseña");
+      return;
     }
+
+    // 1. Buscar usuario real en tu tabla "usuarios"
+    const { data: userRecord, error: userError } = await supabase
+      .from("usuarios")
+      .select("id, username, password, rol_id, roles:rol_id ( nombre )")
+      .eq("username", username.trim())
+      .single();
+
+    if (userError || !userRecord) {
+      console.error("Error al buscar usuario:", userError);
+      alert("Usuario no encontrado");
+      return;
+    }
+
+    // 2. Validar contraseña (texto plano en modo desarrollo)
+    if (userRecord.password !== password.trim()) {
+      alert("Contraseña incorrecta");
+      return;
+    }
+
+    // 3. Obtener el rol real desde la relación
+    const rawRole =
+      Array.isArray(userRecord.roles)
+        ? userRecord.roles[0]?.nombre
+        : (userRecord.roles as any)?.nombre;
+
+    if (!rawRole) {
+      alert("No se pudo determinar el rol del usuario");
+      return;
+    }
+
+    // 4. Mapeo explícito de BD → Frontend
+    let realRole: "student" | "teacher" | "admin";
+
+    switch (rawRole) {
+      case "ADMIN":
+        realRole = "admin";
+        break;
+      case "TEACHER":
+        realRole = "teacher";
+        break;
+      case "STUDENT":
+        realRole = "student";
+        break;
+      default:
+        alert(`Rol no soportado: ${rawRole}`);
+        return;
+    }
+
+    // 5. Enviar username y rol a App.tsx
+    onLogin(userRecord.username, realRole);
   };
 
   return (
@@ -51,7 +87,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             className="w-full h-full object-cover"
           />
         </div>
-        
+
         {/* Abstract Decorative Elements */}
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-96 h-96 border-4 border-white/20 rounded-full animate-pulse"></div>
@@ -60,7 +96,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
         <div className="relative z-10 flex flex-col items-center justify-center w-full p-12 text-white">
           <div className="text-center space-y-6">
-            <h1 className="text-5xl" style={{ fontWeight: 700 }}>Bienvenido a</h1>
+            <h1 className="text-5xl" style={{ fontWeight: 700 }}>
+              Bienvenido a
+            </h1>
             <div className="flex justify-center">
               <Logo size="lg" />
             </div>
@@ -78,9 +116,9 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           </div>
 
           {/* Login Panel */}
-          <div 
+          <div
             className="bg-[#d7d7d7] bg-opacity-80 backdrop-blur-sm rounded-3xl p-10 border border-[#797979]"
-            style={{ boxShadow: '5px 5px 10px rgba(0, 0, 0, 0.1)' }}
+            style={{ boxShadow: "5px 5px 10px rgba(0, 0, 0, 0.1)" }}
           >
             <div className="flex justify-center mb-6 lg:mb-8">
               <Logo size="md" />
@@ -89,52 +127,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             <h2 className="text-center text-[#333333] mb-8">Iniciar Sesión</h2>
 
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Role Selection - OCULTO VISUALMENTE - Se mantendrá para compatibilidad futura */}
-              {/* En producción, el rol será obtenido automáticamente desde Supabase/DB */}
-              <div className="space-y-2" style={{ display: 'none' }}>
-                <label className="block text-sm text-[#333333]">
-                  Tipo de Usuario
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setRole("student")}
-                    className={`rounded-xl px-3 py-3 border-2 transition-all ${
-                      role === "student"
-                        ? "border-[#006d6f] bg-[#006d6f] text-white"
-                        : "border-[#797979] bg-white text-[#333333] hover:border-[#006d6f]"
-                    }`}
-                    style={{ fontWeight: 500 }}
-                  >
-                    Estudiante
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("teacher")}
-                    className={`rounded-xl px-3 py-3 border-2 transition-all ${
-                      role === "teacher"
-                        ? "border-[#006d6f] bg-[#006d6f] text-white"
-                        : "border-[#797979] bg-white text-[#333333] hover:border-[#006d6f]"
-                    }`}
-                    style={{ fontWeight: 500 }}
-                  >
-                    Profesor
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("admin")}
-                    className={`rounded-xl px-3 py-3 border-2 transition-all ${
-                      role === "admin"
-                        ? "border-[#006d6f] bg-[#006d6f] text-white"
-                        : "border-[#797979] bg-white text-[#333333] hover:border-[#006d6f]"
-                    }`}
-                    style={{ fontWeight: 500 }}
-                  >
-                    Admin
-                  </button>
-                </div>
-              </div>
-
+              {/* Usuario */}
               <div className="space-y-2">
                 <label htmlFor="username" className="block text-sm text-[#333333]">
                   Usuario
@@ -149,6 +142,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 />
               </div>
 
+              {/* Contraseña */}
               <div className="space-y-2">
                 <label htmlFor="password" className="block text-sm text-[#333333]">
                   Contraseña
@@ -172,6 +166,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 </div>
               </div>
 
+              {/* Recuperar contraseña */}
               <div className="flex justify-end">
                 <a
                   href="#"
@@ -182,6 +177,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 </a>
               </div>
 
+              {/* Botón login */}
               <button
                 type="submit"
                 className="w-full rounded-full px-6 py-3 border-2 border-[#797979] bg-white hover:bg-[#006d6f] hover:text-white hover:border-[#006d6f] transition-all duration-300"

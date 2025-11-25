@@ -5,31 +5,42 @@ import { TeacherMain } from "./components/teacher/TeacherMain";
 import { AdminMain } from "./components/admin/AdminMain";
 
 export default function App() {
+  // Estado global de la sesión
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [userRole, setUserRole] = useState<
     "student" | "teacher" | "admin"
   >("student");
 
+  // ==========================================================
+  // FUNCIÓN QUE RECIBE LO QUE VIENE DEL LOGIN REAL
+  // ==========================================================
   const handleLogin = (
     name: string,
-    role: "student" | "teacher" | "admin",
+    role: "student" | "teacher" | "admin"
   ) => {
     setUsername(name);
     setUserRole(role);
     setIsLoggedIn(true);
   };
 
+  // Logout
   const handleLogout = () => {
     setIsLoggedIn(false);
     setUsername("");
     setUserRole("student");
   };
 
+  // ==========================================================
+  // SI NO ESTÁ LOGUEADO → MOSTRAR LOGIN
+  // ==========================================================
   if (!isLoggedIn) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
+  // ==========================================================
+  // LAYOUT SEGÚN ROL
+  // ==========================================================
   if (userRole === "student") {
     return (
       <StudentLayout
@@ -50,9 +61,13 @@ export default function App() {
 
   if (userRole === "admin") {
     return (
-      <AdminMain adminName={username} onLogout={handleLogout} />
+      <AdminMain
+        adminName={username}
+        onLogout={handleLogout}
+      />
     );
   }
 
-  return null;
+  // Si aparece un rol desconocido
+  return <p>Rol no reconocido: {userRole}</p>;
 }
